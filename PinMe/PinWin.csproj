@@ -17,4 +17,12 @@
     <RepositoryUrl>https://github.com/your-username/PinMe</RepositoryUrl>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Resource Include="Assets\Orange-Car.gif" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
+  </ItemGroup>
+
 </Project>

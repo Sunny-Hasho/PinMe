@@ -136,6 +136,7 @@ namespace PinWin.Interop
         public const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;
         public const uint EVENT_SYSTEM_MOVESIZEEND = 0x000B;
         public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+        public const int OBJID_WINDOW = 0;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
@@ -145,6 +146,10 @@ namespace PinWin.Interop
         {
             return hWnd != IntPtr.Zero && IsWindow(hWnd);
         }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
         [DllImport("user32.dll")]
         public static extern IntPtr BeginDeferWindowPos(int nNumWindows);
 
@@ -154,5 +159,30 @@ namespace PinWin.Interop
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool EndDeferWindowPos(IntPtr hWinPosInfo);
+
+        // Window Placement
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWPLACEMENT
+        {
+            public int length;
+            public int flags;
+            public int showCmd;
+            public POINT ptMinPosition;
+            public POINT ptMaxPosition;
+            public RECT rcNormalPosition;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+        public const int SW_SHOWMAXIMIZED = 3;
     }
 }

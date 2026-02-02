@@ -34,6 +34,13 @@ namespace PinWin.ViewModels
             // For MVP, hotkey is primary. Tray "Pin" might just toggle the *last* active window or just be there for show/help.
             // Let's make Tray "Pin" trigger the same toggle on Foreground (which might be wrong window) but for now stick to HotkeyService mainly.
             
+            _trayService.ShowPetIconChanged += (s, enabled) => _overlayService.SetPetIconState(enabled);
+            _trayService.ShowBorderChanged += (s, enabled) => _overlayService.SetBorderState(enabled);
+            _trayService.BorderThicknessChanged += (s, thickness) => _overlayService.SetBorderThickness(thickness);
+            _trayService.BorderColorChanged += (s, color) => _overlayService.SetBorderColor(color);
+            _trayService.PetIconChanged += (s, path) => _overlayService.SetPetIcon(path);
+            _trayService.PetIconSizeChanged += (s, size) => _overlayService.SetPetIconSize(size);
+
             _hotkeyService.HotkeyPressed += (s, e) => ToggleActiveWindowPin();
         }
 
@@ -53,7 +60,16 @@ namespace PinWin.ViewModels
 
         private void ToggleActiveWindowPin()
         {
-             TogglePinState(Win32.GetForegroundWindow());
+             IntPtr hwnd = Win32.GetForegroundWindow();
+             
+             // Check if the user has focused (or system thinks focused) the overlay
+             if (_overlayService.TryGetTargetFromOverlay(hwnd, out var realTarget))
+             {
+                 Logger.Log($"ToggleActiveWindowPin: Redirecting from Overlay {hwnd} to Target {realTarget}");
+                 hwnd = realTarget;
+             }
+
+             TogglePinState(hwnd);
         }
 
         private void TogglePinState(IntPtr handle)

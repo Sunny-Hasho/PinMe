@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows.Threading;
 using PinWin.Interop;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace PinWin.Services
 {
@@ -10,13 +11,26 @@ namespace PinWin.Services
     {
         private Dictionary<IntPtr, OverlayWindow> _overlays = new Dictionary<IntPtr, OverlayWindow>();
         private DispatcherTimer _trackingTimer;
+        private Win32.WinEventDelegate _winEventDelegate;
+        private IntPtr _hookHandle = IntPtr.Zero;
 
         public OverlayService()
         {
             _trackingTimer = new DispatcherTimer();
-            _trackingTimer.Interval = TimeSpan.FromMilliseconds(10);
+            _trackingTimer.Interval = TimeSpan.FromMilliseconds(50); // Relaxed timer as Hook handles moves
             _trackingTimer.Tick += TrackingTimer_Tick;
             _trackingTimer.Start();
+
+            _winEventDelegate = new Win32.WinEventDelegate(WinEventProc);
+            // Hook global LOCATIONCHANGE (Move/Size)
+            _hookHandle = Win32.SetWinEventHook(
+                Win32.EVENT_OBJECT_LOCATIONCHANGE, 
+                Win32.EVENT_OBJECT_LOCATIONCHANGE, 
+                IntPtr.Zero, 
+                _winEventDelegate, 
+                0, 
+                0, 
+                Win32.WINEVENT_OUTOFCONTEXT);
         }
 
         public IntPtr AddOverlay(IntPtr targetHwnd)
@@ -36,7 +50,23 @@ namespace PinWin.Services
             // WindowPinService handles the complex "Zipper" chaining.
             
             // Immediate update
-            UpdateOverlayPosition(targetHwnd, overlay);
+            UpdateOverlayState(targetHwnd, overlay);
+            UpdateOverlayPositionFast(targetHwnd, overlay);
+
+            // Apply global settings
+            // Pet visibility is handled in UpdateOverlayPosition loop
+            overlay.SetBorderVisible(IsBorderEnabled);
+            overlay.SetBorderThickness(CurrentBorderThickness);
+            overlay.SetBorderThickness(CurrentBorderThickness);
+            overlay.SetBorderCornerRadius(CurrentCornerRadius);
+            overlay.SetBorderThickness(CurrentBorderThickness);
+            overlay.SetBorderCornerRadius(CurrentCornerRadius);
+            overlay.SetBorderBrush(CurrentBorderBrush);
+            if (!string.IsNullOrEmpty(CurrentPetIconPath))
+            {
+                overlay.SetPetIconSource(CurrentPetIconPath);
+            }
+            overlay.SetPetIconSize(CurrentPetIconSize);
             
             return overlay.Handle;
         }
@@ -56,6 +86,20 @@ namespace PinWin.Services
             }
         }
 
+        public bool TryGetTargetFromOverlay(IntPtr overlayHandle, out IntPtr targetHandle)
+        {
+            targetHandle = IntPtr.Zero;
+            foreach (var kvp in _overlays)
+            {
+                if (kvp.Value.Handle == overlayHandle)
+                {
+                    targetHandle = kvp.Key;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private void TrackingTimer_Tick(object sender, EventArgs e)
         {
             // ToList to allow modification (removal) during iteration if needed, though we mainly remove on "close" detection
@@ -64,80 +108,198 @@ namespace PinWin.Services
             {
                 if (_overlays.TryGetValue(hwnd, out var overlay))
                 {
-                    UpdateOverlayPosition(hwnd, overlay);
+                    // Slow tick: Check state (Maximization, Visibility, Cloaking)
+                    UpdateOverlayState(hwnd, overlay);
+                    // Also update position as fallback
+                    UpdateOverlayPositionFast(hwnd, overlay);
                 }
             }
         }
 
-        private void UpdateOverlayPosition(IntPtr hwnd, OverlayWindow overlay)
+        public bool IsPetIconEnabled { get; set; } = true;
+        public bool IsBorderEnabled { get; set; } = true;
+        public int CurrentBorderThickness { get; set; } = 4;
+        public int CurrentCornerRadius { get; set; } = 8; // Defaulting to 8px as requested
+        public System.Windows.Media.Brush CurrentBorderBrush { get; set; } = System.Windows.Media.Brushes.White;
+        public string? CurrentPetIconPath { get; set; }
+        public int CurrentPetIconSize { get; set; } = 50; // New default: 50px (Medium)
+
+        public void SetPetIconState(bool enabled)
         {
+            IsPetIconEnabled = enabled;
+            // Iterate not needed for Pet as Tick handles it via UpdateOverlayPosition -> SetPetVisible
+            // Actually UpdateOverlayPosition is called every tick so checking Flag there is enough.
+        }
+
+        public void SetBorderState(bool enabled)
+        {
+            IsBorderEnabled = enabled;
+            foreach (var overlay in _overlays.Values)
+            {
+                overlay.SetBorderVisible(enabled);
+            }
+        }
+
+        public void SetBorderThickness(int thickness)
+        {
+            CurrentBorderThickness = thickness;
+            foreach (var overlay in _overlays.Values)
+            {
+                overlay.SetBorderThickness(thickness);
+            }
+        }
+
+        public void SetCornerRadius(int radius)
+        {
+            CurrentCornerRadius = radius;
+            foreach (var overlay in _overlays.Values)
+            {
+                overlay.SetBorderCornerRadius(radius);
+            }
+        }
+
+        public void SetBorderColor(System.Windows.Media.Brush color)
+        {
+            CurrentBorderBrush = color;
+            foreach (var overlay in _overlays.Values)
+            {
+                overlay.SetBorderBrush(color);
+            }
+        }
+
+        public void SetPetIcon(string path)
+        {
+            CurrentPetIconPath = path;
+            foreach (var overlay in _overlays.Values)
+            {
+                overlay.SetPetIconSource(path);
+            }
+        }
+
+        public void SetPetIconSize(int size)
+        {
+            CurrentPetIconSize = size;
+            // Iterate Copy of keys or just KVP directly to avoid modification issues (though set shouldn't modify dict)
+            foreach (var kvp in _overlays)
+            {
+                var hwnd = kvp.Key;
+                var overlay = kvp.Value;
+                overlay.SetPetIconSize(size);
+                // Force position update with correct HWND
+                UpdateOverlayPositionFast(hwnd, overlay);
+            }
+        }
+
+        private void UpdateOverlayState(IntPtr hwnd, OverlayWindow overlay)
+        {
+             // 1. Check Basic Visibility
+            if (!Win32.IsWindowVisible(hwnd))
+            {
+                overlay.Visibility = System.Windows.Visibility.Hidden;
+                return;
+            }
+
+            // 2. Check "Cloaked" State (UWP/Virtual Desktop)
+            int cloakedVal;
+            Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_CLOAKED, out cloakedVal, sizeof(int));
+            if (cloakedVal != 0)
+            {
+                overlay.Visibility = System.Windows.Visibility.Hidden;
+                return;
+            }
+
+            // Check Maximized State for Pet Icon
+            bool isMaximized = false;
+            var placement = new Win32.WINDOWPLACEMENT();
+            placement.length = Marshal.SizeOf(typeof(Win32.WINDOWPLACEMENT));
+            if (Win32.GetWindowPlacement(hwnd, ref placement))
+            {
+                if (placement.showCmd == Win32.SW_SHOWMAXIMIZED)
+                    isMaximized = true;
+            }
+
+            // Show pet if NOT maximized AND Enabled globally
+            bool showPet = !isMaximized && IsPetIconEnabled;
+            overlay.SetPetVisible(showPet);
+
+            if (overlay.Visibility != System.Windows.Visibility.Visible)
+            {
+                overlay.Visibility = System.Windows.Visibility.Visible;
+            }
+        }
+
+        private void UpdateOverlayPositionFast(IntPtr hwnd, OverlayWindow overlay)
+        {
+            if (hwnd == IntPtr.Zero) return; // Safety check
+
             Win32.RECT rect;
-            // Try getting visual bounds first (Windows Vista+)
+            // Try getting visual bounds (Windows Vista+)
+            // This call is relatively fast.
             int result = Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_EXTENDED_FRAME_BOUNDS, out rect, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Win32.RECT)));
             
-            // Fallback to GetWindowRect if DWM fails (rare on modern Windows, but safer)
             if (result != 0)
             {
-                 // If DWM fails, it might be a window that doesn't support it or is closing.
-                 // We specifically AVOID GetWindowRect here because it includes shadows/invisible borders
-                 // which causes the "size change" flickering/jumping the user reported.
-                 
-                 // Just check if window is still valid to decide if we should close overlay
-                 Win32.RECT temp;
-                 if (!Win32.GetWindowRect(hwnd, out temp))
-                 {
-                    // Window definitely closed/invalid
-                    RemoveOverlay(hwnd);
-                    return;
-                 }
-                 
-                 // If valid but DWM failed, skip this update to avoid jitter
+                 // Fallback logic could go here but skipping for speed in Fast Path.
+                 // If DWM fails, we probably shouldn't be drawing an overlay anyway or it's closing.
                  return;
             }
 
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
 
-                if (width <= 0 || height <= 0)
-                {
-                     // Minimized or hidden, hide overlay
-                    overlay.Visibility = System.Windows.Visibility.Hidden;
-                    return;
-                }
-
-                // 1. Check Basic Visibility
-                if (!Win32.IsWindowVisible(hwnd))
-                {
-                    overlay.Visibility = System.Windows.Visibility.Hidden;
-                    return;
-                }
-
-                // 2. Check "Cloaked" State (UWP/Virtual Desktop)
-                // ChatGPT and other modern apps often "Close" by becoming Cloaked.
-                int cloakedVal;
-                Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_CLOAKED, out cloakedVal, sizeof(int));
-                if (cloakedVal != 0)
-                {
-                    overlay.Visibility = System.Windows.Visibility.Hidden;
-                    return;
-                }
-
-                if (overlay.Visibility != System.Windows.Visibility.Visible)
-                {
-                    overlay.Visibility = System.Windows.Visibility.Visible;
-                }
-
-                // Direct Win32 positioning (Physical pixels) - Bypasses WPF Layout & DPI conversion issues
-                // Use SWP_NOZORDER to ensure we don't force the overlay to the top of the stack every 10ms.
-                // The Z-order is handled by the Owner relationship (GWLP_HWNDPARENT) established in AddOverlay.
-                Win32.SetWindowPos(overlay.Handle, IntPtr.Zero, 
-                    rect.Left, rect.Top, width, height, 
-                    Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
+            if (width <= 0 || height <= 0)
+            {
+                return; // Don't hide/show, just do nothing
             }
+
+            int finalTop = rect.Top;
+            int finalHeight = height;
+            
+            // Calculate scale based on DPI - FAST enough
+            int dpi = Win32.GetDpiForWindow(hwnd);
+            if (dpi == 0) dpi = 96;
+            double scale = dpi / 96.0;
+            
+            // Calculate offset based on CURRENT visibility state (set by Slow Timer)
+            // We assume PetIcon visibility state is up to date from the timer tick.
+            // If the user maximizes, the timer will catch it in ~50ms and hide the pet.
+            // For dragging/resizing, the state rarely changes effectively.
+            if (overlay.PetIcon.Visibility == System.Windows.Visibility.Visible)
+            {
+                int petOffset = (int)Math.Ceiling(CurrentPetIconSize * scale);
+                finalTop -= petOffset;
+                finalHeight += petOffset;
+            }
+
+            // Direct Win32 positioning - CRITICAL to use SWP_NOCOPYBITS or similar if possible, 
+            // but standard flags are usually fine.
+            Win32.SetWindowPos(overlay.Handle, IntPtr.Zero, 
+                rect.Left, finalTop, width, finalHeight, 
+                Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
+        }
+
+        private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        {
+            // Only care about Window objects (0). 
+            // Filtering out child objects (-4 client, etc.) reduces spam significantly during resize/layout.
+            if (idObject != Win32.OBJID_WINDOW) return;
+
+            // Simplified check: just check if we track this HWND.
+            if (_overlays.TryGetValue(hwnd, out var overlay))
+            {
+                // Fast path: Only update position
+                UpdateOverlayPositionFast(hwnd, overlay);
+            }
+        }
 
         public void Dispose()
         {
             _trackingTimer.Stop();
+            if (_hookHandle != IntPtr.Zero)
+            {
+                Win32.UnhookWinEvent(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+            }
             foreach (var overlay in _overlays.Values)
             {
                 overlay.Close();
