@@ -1,0 +1,15 @@
+<Window x:Class="PinWin.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OverlayWindow" Height="300" Width="300"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        IsHitTestVisible="False"
+        Focusable="False"
+        Opacity="0.8">
+    <Border BorderBrush="White" BorderThickness="4" Background="Transparent" />
+</Window>

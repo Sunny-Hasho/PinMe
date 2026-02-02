@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    
+    <!-- Metadata -->
+    <Authors>Open Source Contributor</Authors>
+    <Product>PinMe - Always On Top Utility</Product>
+    <Description>A robust Windows utility to pin windows on top with visual feedback and glitch-free stacking.</Description>
+    <Version>1.0.0</Version>
+    <RepositoryUrl>https://github.com/your-username/PinMe</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>
