@@ -12,6 +12,7 @@ namespace PinWin.ViewModels
         private readonly TrayService _trayService;
         private readonly OverlayService _overlayService;
         private IntPtr _mainWindowHandle;
+        private IntPtr _lastToggledWindow = IntPtr.Zero; // Sticky target for hotkey
 
         public AppViewModel()
         {
@@ -61,6 +62,7 @@ namespace PinWin.ViewModels
         private void ToggleActiveWindowPin()
         {
              IntPtr hwnd = Win32.GetForegroundWindow();
+             Logger.Log($"ToggleActiveWindowPin: GetForegroundWindow returned {hwnd}");
              
              // Check if the user has focused (or system thinks focused) the overlay
              if (_overlayService.TryGetTargetFromOverlay(hwnd, out var realTarget))
@@ -68,8 +70,40 @@ namespace PinWin.ViewModels
                  Logger.Log($"ToggleActiveWindowPin: Redirecting from Overlay {hwnd} to Target {realTarget}");
                  hwnd = realTarget;
              }
+             else
+             {
+                 Logger.Log($"ToggleActiveWindowPin: Window {hwnd} is not an overlay, using directly");
+             }
 
-             TogglePinState(hwnd);
+             IntPtr targetWindow = hwnd;
+
+             // Sticky target logic: If we have a last toggled window and it's still valid
+             if (_lastToggledWindow != IntPtr.Zero && Win32.IsWindow(_lastToggledWindow))
+             {
+                 // Only stick to the last window if it's STILL the foreground window
+                 // This prevents switching to random windows when focus briefly changes
+                 if (hwnd == _lastToggledWindow)
+                 {
+                     Logger.Log($"ToggleActiveWindowPin: Using sticky target {hwnd}");
+                     targetWindow = _lastToggledWindow;
+                 }
+                 else
+                 {
+                     // User explicitly switched to a different window
+                     Logger.Log($"ToggleActiveWindowPin: User switched from {_lastToggledWindow} to {hwnd}, updating target");
+                     _lastToggledWindow = hwnd;
+                     targetWindow = hwnd;
+                 }
+             }
+             else
+             {
+                 // First time or last window was closed
+                 Logger.Log($"ToggleActiveWindowPin: Setting initial target {hwnd}");
+                 _lastToggledWindow = hwnd;
+                 targetWindow = hwnd;
+             }
+
+             TogglePinState(targetWindow);
         }
 
         private void TogglePinState(IntPtr handle)

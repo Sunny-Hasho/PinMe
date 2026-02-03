@@ -10,26 +10,28 @@ namespace PinWin.Services
     public class OverlayService : IDisposable
     {
         private Dictionary<IntPtr, OverlayWindow> _overlays = new Dictionary<IntPtr, OverlayWindow>();
+        private Dictionary<IntPtr, bool> _isAnimating = new Dictionary<IntPtr, bool>();
         private DispatcherTimer _trackingTimer;
-        private Win32.WinEventDelegate _winEventDelegate;
-        private IntPtr _hookHandle = IntPtr.Zero;
+        private IntPtr _animationHook;
+        private Win32.WinEventDelegate? _animationHookDelegate;
 
         public OverlayService()
         {
-            _trackingTimer = new DispatcherTimer();
-            _trackingTimer.Interval = TimeSpan.FromMilliseconds(50); // Relaxed timer as Hook handles moves
+            // Set priority to Send (highest) to ensure tracking logic isn't delayed by layout/rendering
+            _trackingTimer = new DispatcherTimer(System.Windows.Threading.DispatcherPriority.Send);
+            _trackingTimer.Interval = TimeSpan.FromMilliseconds(10); // High-speed polling (User Request)
             _trackingTimer.Tick += TrackingTimer_Tick;
             _trackingTimer.Start();
 
-            _winEventDelegate = new Win32.WinEventDelegate(WinEventProc);
-            // Hook global LOCATIONCHANGE (Move/Size)
-            _hookHandle = Win32.SetWinEventHook(
-                Win32.EVENT_OBJECT_LOCATIONCHANGE, 
-                Win32.EVENT_OBJECT_LOCATIONCHANGE, 
-                IntPtr.Zero, 
-                _winEventDelegate, 
-                0, 
-                0, 
+            // Hook animation events for seamless transitions
+            _animationHookDelegate = new Win32.WinEventDelegate(AnimationEventProc);
+            _animationHook = Win32.SetWinEventHook(
+                Win32.EVENT_SYSTEM_MOVESIZESTART,
+                Win32.EVENT_SYSTEM_MOVESIZEEND,
+                IntPtr.Zero,
+                _animationHookDelegate,
+                0,
+                0,
                 Win32.WINEVENT_OUTOFCONTEXT);
         }
 
@@ -42,6 +44,7 @@ namespace PinWin.Services
             }
 
             var overlay = new OverlayWindow();
+            overlay.SuppressionTicks = 5; // Suppress for 50ms to allow first position calc
             overlay.Show();
             _overlays.Add(targetHwnd, overlay);
             Logger.Log($"OverlayService: Added overlay for {targetHwnd}");
@@ -50,8 +53,8 @@ namespace PinWin.Services
             // WindowPinService handles the complex "Zipper" chaining.
             
             // Immediate update
-            UpdateOverlayState(targetHwnd, overlay);
-            UpdateOverlayPositionFast(targetHwnd, overlay);
+            // Immediate update
+            UpdateOverlayPosition(targetHwnd, overlay);
 
             // Apply global settings
             // Pet visibility is handled in UpdateOverlayPosition loop
@@ -78,6 +81,7 @@ namespace PinWin.Services
                 var overlay = _overlays[targetHwnd];
                 overlay.Close();
                 _overlays.Remove(targetHwnd);
+                _isAnimating.Remove(targetHwnd);
                 Logger.Log($"OverlayService: Removed overlay for {targetHwnd}");
             }
             else 
@@ -102,18 +106,14 @@ namespace PinWin.Services
 
         private void TrackingTimer_Tick(object sender, EventArgs e)
         {
-            // ToList to allow modification (removal) during iteration if needed, though we mainly remove on "close" detection
-            var keys = _overlays.Keys.ToList();
-            foreach (var hwnd in keys)
-            {
-                if (_overlays.TryGetValue(hwnd, out var overlay))
-                {
-                    // Slow tick: Check state (Maximization, Visibility, Cloaking)
-                    UpdateOverlayState(hwnd, overlay);
-                    // Also update position as fallback
-                    UpdateOverlayPositionFast(hwnd, overlay);
-                }
-            }
+             var keys = _overlays.Keys.ToList();
+             foreach (var hwnd in keys)
+             {
+                 if (_overlays.TryGetValue(hwnd, out var overlay))
+                 {
+                     UpdateOverlayPosition(hwnd, overlay);
+                 }
+             }
         }
 
         public bool IsPetIconEnabled { get; set; } = true;
@@ -170,9 +170,12 @@ namespace PinWin.Services
         public void SetPetIcon(string path)
         {
             CurrentPetIconPath = path;
-            foreach (var overlay in _overlays.Values)
+            foreach (var kvp in _overlays)
             {
+                var hwnd = kvp.Key;
+                var overlay = kvp.Value;
                 overlay.SetPetIconSource(path);
+                UpdateOverlayPosition(hwnd, overlay);
             }
         }
 
@@ -185,21 +188,48 @@ namespace PinWin.Services
                 var hwnd = kvp.Key;
                 var overlay = kvp.Value;
                 overlay.SetPetIconSize(size);
-                // Force position update with correct HWND
-                UpdateOverlayPositionFast(hwnd, overlay);
+                UpdateOverlayPosition(hwnd, overlay);
             }
         }
 
-        private void UpdateOverlayState(IntPtr hwnd, OverlayWindow overlay)
+        private void UpdateOverlayPosition(IntPtr hwnd, OverlayWindow overlay)
         {
-             // 1. Check Basic Visibility
+            // Check if window is currently animating
+            bool isAnimating = _isAnimating.TryGetValue(hwnd, out bool animFlag) && animFlag;
+
+            Win32.RECT rect;
+            // Native DWM call - fast enough for 10ms polling
+            int result = Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_EXTENDED_FRAME_BOUNDS, out rect, System.Runtime.InteropServices.Marshal.SizeOf(typeof(Win32.RECT)));
+            
+            if (result != 0)
+            {
+                 // Fallback to GetWindowRect to verify if window is closed
+                 Win32.RECT temp;
+                 if (!Win32.GetWindowRect(hwnd, out temp))
+                 {
+                    RemoveOverlay(hwnd); // Window closed
+                    return;
+                 }
+                 return; // Just skip update
+            }
+
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+
+            if (width <= 0 || height <= 0)
+            {
+                overlay.Visibility = System.Windows.Visibility.Hidden;
+                return;
+            }
+
+            // 1. Basic Visibility
             if (!Win32.IsWindowVisible(hwnd))
             {
                 overlay.Visibility = System.Windows.Visibility.Hidden;
                 return;
             }
 
-            // 2. Check "Cloaked" State (UWP/Virtual Desktop)
+            // 2. Cloaked
             int cloakedVal;
             Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_CLOAKED, out cloakedVal, sizeof(int));
             if (cloakedVal != 0)
@@ -208,7 +238,7 @@ namespace PinWin.Services
                 return;
             }
 
-            // Check Maximized State for Pet Icon
+            // 3. Maximized Check (for Pet)
             bool isMaximized = false;
             var placement = new Win32.WINDOWPLACEMENT();
             placement.length = Marshal.SizeOf(typeof(Win32.WINDOWPLACEMENT));
@@ -218,118 +248,99 @@ namespace PinWin.Services
                     isMaximized = true;
             }
 
-            // Show pet if NOT maximized AND Enabled globally
+            // State-change detection: Hide ONLY during maximize/restore transitions
+            bool lastKnownMax = (overlay.Tag is bool b) && b;
+            if (isAnimating && lastKnownMax != isMaximized)
+            {
+                // State is changing during animation - hide until animation ends
+                overlay.Tag = isMaximized;
+                overlay.Visibility = System.Windows.Visibility.Hidden;
+                return;
+            }
+            // If state changed but animation ended, add settling delay
+            else if (!isAnimating && lastKnownMax != isMaximized)
+            {
+                overlay.Tag = isMaximized;
+                overlay.SuppressionTicks = 5; // 50ms settling time after state transition
+            }
+            // Update state even if not animating
+            overlay.Tag = isMaximized;
+
+            // Settling delay after animation ends
+            if (overlay.SuppressionTicks > 0)
+            {
+                overlay.SuppressionTicks--;
+                overlay.Visibility = System.Windows.Visibility.Hidden;
+                return;
+            }
+
+            // Show pet if NOT maximized AND Enabled
             bool showPet = !isMaximized && IsPetIconEnabled;
             overlay.SetPetVisible(showPet);
 
+            // Ensure visibility after suppression ends
             if (overlay.Visibility != System.Windows.Visibility.Visible)
             {
                 overlay.Visibility = System.Windows.Visibility.Visible;
             }
 
-            // --- CACHING LOGIC START ---
-            // 1. DPI
-            int dpi = Win32.GetDpiForWindow(hwnd);
-            if (dpi == 0) dpi = 96;
-            overlay.CachedDpiScale = dpi / 96.0;
-
-            // 2. Frame Offset (Visual Bounds vs Window Rect)
-            // We need both rectangles to calculate the diff.
-            Win32.RECT visualRect;
-            int result = Win32.DwmGetWindowAttribute(hwnd, Win32.DWMWA_EXTENDED_FRAME_BOUNDS, out visualRect, Marshal.SizeOf(typeof(Win32.RECT)));
-            
-            // If DWM fails, we default to 0 offset (assume match)
-            if (result == 0)
-            {
-                Win32.RECT winRect;
-                if (Win32.GetWindowRect(hwnd, out winRect))
-                {
-                    var offset = new Win32.RECT();
-                    offset.Left = visualRect.Left - winRect.Left;
-                    offset.Top = visualRect.Top - winRect.Top;
-                    offset.Right = visualRect.Right - winRect.Right; 
-                    offset.Bottom = visualRect.Bottom - winRect.Bottom;
-                    overlay.CachedFrameOffset = offset;
-                }
-            }
-            // --- CACHING LOGIC END ---
-        }
-
-        private void UpdateOverlayPositionFast(IntPtr hwnd, OverlayWindow overlay)
-        {
-            if (hwnd == IntPtr.Zero) return; // Safety check
-
-            // FASTEST PATH: Use GetWindowRect (User32) + Cached Offset
-            // This avoids DwmGetWindowAttribute (IPC) and GetDpi in the hot path.
-            
-            Win32.RECT winRect;
-            if (!Win32.GetWindowRect(hwnd, out winRect))
-            {
-                return;
-            }
-
-            // Apply Cached Offsets to get Visual Bounds
-            var offset = overlay.CachedFrameOffset;
-            int left = winRect.Left + offset.Left;
-            int top = winRect.Top + offset.Top;
-            int right = winRect.Right + offset.Right;   // Note: Cached Right is diff of Right coordinates
-            int bottom = winRect.Bottom + offset.Bottom;
-
-            int width = right - left;
-            int height = bottom - top;
-
-            if (width <= 0 || height <= 0)
-            {
-                return;
-            }
-
-            int finalTop = top;
+            int finalTop = rect.Top;
             int finalHeight = height;
-            
-            // Use Cached DPI
-            double scale = overlay.CachedDpiScale;
-            
-            // Calculate offset based on CURRENT visibility state
-            if (overlay.PetIcon.Visibility == System.Windows.Visibility.Visible)
+
+            if (showPet)
             {
+                // Calculate DPI + Offset
+                int dpi = Win32.GetDpiForWindow(hwnd);
+                if (dpi == 0) dpi = 96;
+                double scale = dpi / 96.0;
                 int petOffset = (int)Math.Ceiling(CurrentPetIconSize * scale);
+                
                 finalTop -= petOffset;
                 finalHeight += petOffset;
             }
 
-            // Direct Win32 positioning
+            // Position
             Win32.SetWindowPos(overlay.Handle, IntPtr.Zero, 
-                left, finalTop, width, finalHeight, 
+                rect.Left, finalTop, width, finalHeight, 
                 Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE | Win32.SWP_SHOWWINDOW);
         }
 
-        private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        private void AnimationEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
-            // Only care about Window objects (0). 
-            // Filtering out child objects (-4 client, etc.) reduces spam significantly during resize/layout.
+            // Only process window-level events
             if (idObject != Win32.OBJID_WINDOW) return;
 
-            // Simplified check: just check if we track this HWND.
-            if (_overlays.TryGetValue(hwnd, out var overlay))
+            // Only track windows we're monitoring
+            if (!_overlays.ContainsKey(hwnd)) return;
+
+            if (eventType == Win32.EVENT_SYSTEM_MOVESIZESTART)
             {
-                // Fast path: Only update position
-                UpdateOverlayPositionFast(hwnd, overlay);
+                // Mark as animating, but don't hide yet - let update loop decide
+                _isAnimating[hwnd] = true;
+            }
+            else if (eventType == Win32.EVENT_SYSTEM_MOVESIZEEND)
+            {
+                // Animation ended - clear flag (settling delay added only if state changed)
+                _isAnimating[hwnd] = false;
             }
         }
 
         public void Dispose()
         {
             _trackingTimer.Stop();
-            if (_hookHandle != IntPtr.Zero)
+            
+            if (_animationHook != IntPtr.Zero)
             {
-                Win32.UnhookWinEvent(_hookHandle);
-                _hookHandle = IntPtr.Zero;
+                Win32.UnhookWinEvent(_animationHook);
+                _animationHook = IntPtr.Zero;
             }
+            
             foreach (var overlay in _overlays.Values)
             {
                 overlay.Close();
             }
             _overlays.Clear();
+            _isAnimating.Clear();
         }
     }
 }

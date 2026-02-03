@@ -27,6 +27,7 @@ namespace PinWin.Interop
         public const uint WS_EX_TOPMOST = 0x00000008;
         public const uint WS_EX_TRANSPARENT = 0x00000020;
         public const uint WS_EX_TOOLWINDOW = 0x00000080;
+        public const uint WS_EX_NOACTIVATE = 0x08000000;
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
         private static extern IntPtr GetWindowLongPtr32(IntPtr hWnd, int nIndex);

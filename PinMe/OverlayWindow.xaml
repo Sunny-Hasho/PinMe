@@ -11,6 +11,7 @@
         IsHitTestVisible="False"
         Focusable="False"
         Opacity="0.8"
+        Visibility="Hidden"
         SnapsToDevicePixels="True"
         UseLayoutRounding="True"
         xmlns:gif="http://wpfanimatedgif.codeplex.com">
