@@ -97,6 +97,58 @@ namespace PinWin
         public void SetPetIconSize(int size)
         {
             PetIcon.Height = size;
+            
+            // Adjust Y offset based on size to eliminate gap for large icons
+            // Small (30px): Y=8 (default offset)
+            // Medium (50px): Y=8 (default offset)
+            // Large (80px): Y=15 (move down to snap to tab bar)
+            if (size >= 80)
+            {
+                PetIconTransform.Y = 15; // Large icon - move down more
+            }
+            else if (size >= 50)
+            {
+                PetIconTransform.Y = 8; // Medium icon - default offset
+            }
+            else
+            {
+                PetIconTransform.Y = 8; // Small icon - default offset
+            }
+        }
+
+        public void SetPetIconPosition(string position)
+        {
+            switch (position)
+            {
+                case "Left":
+                    PetIcon.HorizontalAlignment = System.Windows.HorizontalAlignment.Left;
+                    PetIcon.Margin = new Thickness(4, 0, 0, 0);
+                    break;
+                case "Center":
+                    PetIcon.HorizontalAlignment = System.Windows.HorizontalAlignment.Center;
+                    PetIcon.Margin = new Thickness(0, 0, 0, 0);
+                    break;
+                case "Right":
+                    PetIcon.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
+                    PetIcon.Margin = new Thickness(0, 0, 4, 0);
+                    break;
+            }
+        }
+        public void SetHeaderHeight(double height)
+        {
+            if (HeaderRow.Height.Value != height)
+            {
+                HeaderRow.Height = new GridLength(height);
+                this.UpdateLayout(); // Force layout update
+            }
+        }
+
+        public double GetActualHeaderHeight()
+        {
+            // Get current DPI scale
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+            // Return physical pixels (Logical Height * DPI Scale)
+            return HeaderRow.Height.Value * dpi.PixelsPerDip;
         }
     }
 }

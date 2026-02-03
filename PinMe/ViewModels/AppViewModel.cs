@@ -40,9 +40,11 @@ namespace PinWin.ViewModels
             _trayService.ShowPetIconChanged += (s, enabled) => _overlayService.SetPetIconState(enabled);
             _trayService.ShowBorderChanged += (s, enabled) => _overlayService.SetBorderState(enabled);
             _trayService.BorderThicknessChanged += (s, thickness) => _overlayService.SetBorderThickness(thickness);
+            _trayService.BorderRadiusChanged += (s, radius) => _overlayService.SetCornerRadius(radius);
             _trayService.BorderColorChanged += (s, color) => _overlayService.SetBorderColor(color);
             _trayService.PetIconChanged += (s, path) => _overlayService.SetPetIcon(path);
             _trayService.PetIconSizeChanged += (s, size) => _overlayService.SetPetIconSize(size);
+            _trayService.IconPositionChanged += (s, position) => _overlayService.SetPetIconPosition(position);
 
             _hotkeyService.HotkeyPressed += (s, e) => ToggleActiveWindowPin();
         }

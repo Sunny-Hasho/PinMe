@@ -185,5 +185,13 @@ namespace PinWin.Interop
         public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
         public const int SW_SHOWMAXIMIZED = 3;
+
+        // Virtual Key Codes for Mouse Buttons
+        public const int VK_LBUTTON = 0x01;
+        public const int VK_RBUTTON = 0x02;
+        public const int VK_MBUTTON = 0x04;
+
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vKey);
     }
 }

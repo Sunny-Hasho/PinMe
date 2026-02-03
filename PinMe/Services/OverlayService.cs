@@ -123,6 +123,7 @@ namespace PinWin.Services
         public System.Windows.Media.Brush CurrentBorderBrush { get; set; } = System.Windows.Media.Brushes.White;
         public string? CurrentPetIconPath { get; set; }
         public int CurrentPetIconSize { get; set; } = 50; // New default: 50px (Medium)
+        public string CurrentPetIconPosition { get; set; } = "Center"; // Default: Center
 
         public void SetPetIconState(bool enabled)
         {
@@ -188,6 +189,18 @@ namespace PinWin.Services
                 var hwnd = kvp.Key;
                 var overlay = kvp.Value;
                 overlay.SetPetIconSize(size);
+                UpdateOverlayPosition(hwnd, overlay);
+            }
+        }
+
+        public void SetPetIconPosition(string position)
+        {
+            CurrentPetIconPosition = position;
+            foreach (var kvp in _overlays)
+            {
+                var hwnd = kvp.Key;
+                var overlay = kvp.Value;
+                overlay.SetPetIconPosition(position);
                 UpdateOverlayPosition(hwnd, overlay);
             }
         }
@@ -287,16 +300,55 @@ namespace PinWin.Services
             int finalTop = rect.Top;
             int finalHeight = height;
 
+            // 4. Update Header Height based on state
+            // If Maximized (showPet == false), collapse header to 0 to align border perfectly.
+            // If Restored (showPet == true), use FIXED 150px header to prevent resize glitches.
             if (showPet)
             {
-                // Calculate DPI + Offset
-                int dpi = Win32.GetDpiForWindow(hwnd);
-                if (dpi == 0) dpi = 96;
-                double scale = dpi / 96.0;
-                int petOffset = (int)Math.Ceiling(CurrentPetIconSize * scale);
-                
-                finalTop -= petOffset;
-                finalHeight += petOffset;
+                overlay.SetHeaderHeight(150);
+            }
+            else
+            {
+                overlay.SetHeaderHeight(0);
+            }
+
+            // ROBUST OFFSET CALCULATION
+            // We need to offset the window up by the physical height of the header row.
+            
+            int petOffset = 0;
+            try 
+            {
+                // Try to get exact rendered height from WPF
+                double actualHeight = overlay.GetActualHeaderHeight();
+                if (actualHeight > 0)
+                {
+                    petOffset = (int)Math.Round(actualHeight);
+                }
+            }
+            catch 
+            {
+                // Ignore errors
+            }
+
+            // Fallback only if we EXPECT a header (showPet is true) but got 0
+            if (showPet && petOffset <= 0)
+            {
+                 int dpi = Win32.GetDpiForWindow(hwnd);
+                 if (dpi == 0) dpi = 96;
+                 double scale = dpi / 96.0;
+                 petOffset = (int)Math.Ceiling(150 * scale);
+                 
+                 // Safety clamp for restored windows
+                 if (petOffset < 150) petOffset = 150;
+            }
+            
+            finalTop -= petOffset;
+            finalHeight += petOffset;
+
+            // showPet passed to SetPetVisible handles the icon visibility itself
+            // relying on SetHeaderHeight(0) handles the structural space
+            {
+                // Pet visibility is already set via SetPetVisible above
             }
 
             // Position
