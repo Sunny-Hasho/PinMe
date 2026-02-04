@@ -1,4 +1,4 @@
-<Window x:Class="PinWin.SubMenu"
+<Window x:Class="Pinnit.SubMenu"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="SubMenu" Height="Auto" Width="180"

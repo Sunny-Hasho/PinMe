@@ -1,9 +1,9 @@
 using System;
 using System.Windows;
-using PinWin.Interop;
-using PinWin.Services;
+using Pinnit.Interop;
+using Pinnit.Services;
 
-namespace PinWin.ViewModels
+namespace Pinnit.ViewModels
 {
     public class AppViewModel : IDisposable
     {

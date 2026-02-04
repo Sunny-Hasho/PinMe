@@ -1,17 +1,17 @@
 using System;
 using System.Windows.Forms;
-using PinWin.Interop;
+using Pinnit.Interop;
+using Microsoft.Win32;
 
-namespace PinWin.Services
+namespace Pinnit.Services
 {
     public class TrayService : IDisposable
     {
         private NotifyIcon? _notifyIcon;
         private TrayMenu? _trayMenu;
         
-        // Changed to use IntPtr for specific window
         public event EventHandler<IntPtr>? PinWindowRequested;
-        public event EventHandler? UnpinRequested; // Keep generic unpin active for now or use same event?
+        public event EventHandler? UnpinRequested; 
         public event EventHandler? ExitRequested;
         public event EventHandler<bool>? ShowPetIconChanged;
         public event EventHandler<bool>? ShowBorderChanged;
@@ -24,11 +24,14 @@ namespace PinWin.Services
         
         public bool ShowPetIcon { get; set; } = true;
         public bool ShowBorder { get; set; } = true;
+        
+        private const string AppName = "Pinnit";
 
         public void Initialize()
         {
             _trayMenu = new TrayMenu();
-            _trayMenu.SetStates(ShowPetIcon, ShowBorder);
+            bool isStartup = CheckStartup();
+            _trayMenu.SetStates(ShowPetIcon, ShowBorder, isStartup);
             
             // Wire up events
             _trayMenu.ShowPetIconToggleClicked += (s, enabled) =>
@@ -43,48 +46,69 @@ namespace PinWin.Services
                 ShowBorderChanged?.Invoke(this, enabled);
             };
             
-            // Old ChangeIconClicked removed - replaced by internal SubMenu logic
+            _trayMenu.StartupToggleClicked += (s, enabled) => SetStartup(enabled);
             
-            _trayMenu.PetIconChanged += (s, path) =>
-            {
-                PetIconChanged?.Invoke(this, path);
-            };
-            
-            _trayMenu.IconSizeChanged += (s, size) =>
-            {
-                PetIconSizeChanged?.Invoke(this, size);
-            };
-            
-            _trayMenu.IconPositionChanged += (s, position) =>
-            {
-                IconPositionChanged?.Invoke(this, position);
-            };
-            
-            _trayMenu.BorderThicknessChanged += (s, thickness) =>
-            {
-                BorderThicknessChanged?.Invoke(this, thickness);
-            };
-            
-            _trayMenu.BorderRadiusChanged += (s, radius) =>
-            {
-                BorderRadiusChanged?.Invoke(this, radius);
-            };
-            
-            _trayMenu.BorderColorChanged += (s, brush) =>
-            {
-                BorderColorChanged?.Invoke(this, brush);
-            };
-            
+            _trayMenu.PetIconChanged += (s, path) => PetIconChanged?.Invoke(this, path);
+            _trayMenu.IconSizeChanged += (s, size) => PetIconSizeChanged?.Invoke(this, size);
+            _trayMenu.IconPositionChanged += (s, position) => IconPositionChanged?.Invoke(this, position);
+            _trayMenu.BorderThicknessChanged += (s, thickness) => BorderThicknessChanged?.Invoke(this, thickness);
+            _trayMenu.BorderRadiusChanged += (s, radius) => BorderRadiusChanged?.Invoke(this, radius);
+            _trayMenu.BorderColorChanged += (s, brush) => BorderColorChanged?.Invoke(this, brush);
             _trayMenu.ExitClicked += (s, e) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
             _notifyIcon = new NotifyIcon
             {
                 Icon = System.Drawing.SystemIcons.Information, // Placeholder
                 Visible = true,
-                Text = "PinWin"
+                Text = "Pinnit"
             };
             
             _notifyIcon.MouseClick += NotifyIcon_MouseClick;
+        }
+
+        private bool CheckStartup()
+        {
+            try
+            {
+                using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", false))
+                {
+                    return key != null && key.GetValue(AppName) != null;
+                }
+            }
+            catch { return false; }
+        }
+
+        private void SetStartup(bool enable)
+        {
+            try
+            {
+                using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (key == null) return;
+
+                    if (enable)
+                    {
+                        var path = System.Environment.ProcessPath;
+                        if (!string.IsNullOrEmpty(path))
+                        {
+                            // Ensure path is quoted if it contains spaces
+                            if (!path.StartsWith("\"") && path.Contains(" "))
+                            {
+                                path = $"\"{path}\"";
+                            }
+                            key.SetValue(AppName, path);
+                        }
+                    }
+                    else
+                    {
+                        key.DeleteValue(AppName, false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error settings startup: {ex.Message}");
+            }
         }
 
         private void NotifyIcon_MouseClick(object? sender, MouseEventArgs e)
@@ -93,7 +117,8 @@ namespace PinWin.Services
             {
                 if (_trayMenu != null && !_trayMenu.IsVisible)
                 {
-                    _trayMenu.SetStates(ShowPetIcon, ShowBorder);
+                    bool isStartup = CheckStartup();
+                    _trayMenu.SetStates(ShowPetIcon, ShowBorder, isStartup);
                     _trayMenu.ShowAtMouse();
                 }
             }

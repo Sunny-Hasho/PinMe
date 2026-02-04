@@ -3,12 +3,13 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Forms;
 
-namespace PinWin
+namespace Pinnit
 {
     public partial class TrayMenu : Window
     {
         public event EventHandler<bool>? ShowPetIconToggleClicked;
         public event EventHandler<bool>? ShowBorderToggleClicked;
+        public event EventHandler<bool>? StartupToggleClicked;
         public event EventHandler? ChangeIconClicked;
         public event EventHandler<int>? IconSizeChanged;
         public event EventHandler<string>? IconPositionChanged;
@@ -22,6 +23,7 @@ namespace PinWin
 
         private bool _showPetIcon = true;
         private bool _showBorder = true;
+        private bool _runOnStartup = false;
         private SubMenu? _iconSizeSubMenu;
         private SubMenu? _iconPositionSubMenu;
         private SubMenu? _changeIconSubMenu; // New submenu for icons
@@ -39,6 +41,7 @@ namespace PinWin
             _clickDetectionTimer.Tick += ClickDetectionTimer_Tick;
 
             InitializeSubMenus();
+            UpdateVisuals();
         }
 
         private void InitializeSubMenus()
@@ -135,10 +138,11 @@ namespace PinWin
             };
         }
 
-        public void SetStates(bool showPetIcon, bool showBorder)
+        public void SetStates(bool showPetIcon, bool showBorder, bool runOnStartup)
         {
             _showPetIcon = showPetIcon;
             _showBorder = showBorder;
+            _runOnStartup = runOnStartup;
             UpdateVisuals();
         }
 
@@ -146,6 +150,7 @@ namespace PinWin
         {
             ChkShowPetIcon.IsChecked = _showPetIcon;
             ChkShowBorder.IsChecked = _showBorder;
+            ChkRunOnStartup.IsChecked = _runOnStartup;
         }
 
         private void ClickDetectionTimer_Tick(object? sender, EventArgs e)
@@ -153,9 +158,9 @@ namespace PinWin
             if (!this.IsVisible) return;
 
             // Check if any mouse button is pressed
-            bool mouseButtonDown = (PinWin.Interop.Win32.GetAsyncKeyState(PinWin.Interop.Win32.VK_LBUTTON) & 0x8000) != 0 ||
-                                 (PinWin.Interop.Win32.GetAsyncKeyState(PinWin.Interop.Win32.VK_RBUTTON) & 0x8000) != 0 ||
-                                 (PinWin.Interop.Win32.GetAsyncKeyState(PinWin.Interop.Win32.VK_MBUTTON) & 0x8000) != 0;
+            bool mouseButtonDown = (Pinnit.Interop.Win32.GetAsyncKeyState(Pinnit.Interop.Win32.VK_LBUTTON) & 0x8000) != 0 ||
+                                 (Pinnit.Interop.Win32.GetAsyncKeyState(Pinnit.Interop.Win32.VK_RBUTTON) & 0x8000) != 0 ||
+                                 (Pinnit.Interop.Win32.GetAsyncKeyState(Pinnit.Interop.Win32.VK_MBUTTON) & 0x8000) != 0;
 
             if (mouseButtonDown && !this.IsMouseOver && 
                 !(_changeIconSubMenu?.IsMouseOver ?? false) &&
@@ -173,9 +178,9 @@ namespace PinWin
         {
             base.OnSourceInitialized(e);
             IntPtr hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            IntPtr exStyle = PinWin.Interop.Win32.GetWindowLongPtr(hwnd, PinWin.Interop.Win32.GWL_EXSTYLE);
-            PinWin.Interop.Win32.SetWindowLong(hwnd, PinWin.Interop.Win32.GWL_EXSTYLE, 
-                new IntPtr(exStyle.ToInt64() | (long)PinWin.Interop.Win32.WS_EX_NOACTIVATE | (long)PinWin.Interop.Win32.WS_EX_TOOLWINDOW));
+            IntPtr exStyle = Pinnit.Interop.Win32.GetWindowLongPtr(hwnd, Pinnit.Interop.Win32.GWL_EXSTYLE);
+            Pinnit.Interop.Win32.SetWindowLong(hwnd, Pinnit.Interop.Win32.GWL_EXSTYLE, 
+                new IntPtr(exStyle.ToInt64() | (long)Pinnit.Interop.Win32.WS_EX_NOACTIVATE | (long)Pinnit.Interop.Win32.WS_EX_TOOLWINDOW));
         }
 
         public void ShowAtMouse()
@@ -244,6 +249,13 @@ namespace PinWin
             _showBorder = !_showBorder;
             UpdateVisuals();
             ShowBorderToggleClicked?.Invoke(this, _showBorder);
+        }
+
+        private void BtnRunOnStartup_Click(object sender, RoutedEventArgs e)
+        {
+            _runOnStartup = !_runOnStartup;
+            UpdateVisuals();
+            StartupToggleClicked?.Invoke(this, _runOnStartup);
         }
 
         private void BtnChangeIcon_Click(object sender, RoutedEventArgs e)

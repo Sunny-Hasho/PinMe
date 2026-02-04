@@ -2,9 +2,9 @@ using System;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
-using PinWin.Interop;
+using Pinnit.Interop;
 
-namespace PinWin
+namespace Pinnit
 {
     public partial class OverlayWindow : Window
     {
@@ -32,7 +32,7 @@ namespace PinWin
             int extendedStyle = Win32.GetWindowLongPtr(this.Handle, Win32.GWL_EXSTYLE).ToInt32();
             Win32.SetWindowLong(this.Handle, Win32.GWL_EXSTYLE, extendedStyle | (int)Win32.WS_EX_TRANSPARENT | (int)Win32.WS_EX_TOOLWINDOW | (int)Win32.WS_EX_NOACTIVATE);
 
-            PinWin.Interop.Win32.SetWindowPos(this.Handle, PinWin.Interop.Win32.HWND_TOPMOST, 0, 0, 0, 0, PinWin.Interop.Win32.SWP_NOMOVE | PinWin.Interop.Win32.SWP_NOSIZE | PinWin.Interop.Win32.SWP_SHOWWINDOW);
+            Pinnit.Interop.Win32.SetWindowPos(this.Handle, Pinnit.Interop.Win32.HWND_TOPMOST, 0, 0, 0, 0, Pinnit.Interop.Win32.SWP_NOMOVE | Pinnit.Interop.Win32.SWP_NOSIZE | Pinnit.Interop.Win32.SWP_SHOWWINDOW);
         }
 
         public void SetPetVisible(bool visible)

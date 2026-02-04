@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace PinWin
+namespace Pinnit
 {
     public static class Logger
     {

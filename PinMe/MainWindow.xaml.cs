@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Interop;
-using PinWin.ViewModels;
+using Pinnit.ViewModels;
 
-namespace PinWin
+namespace Pinnit
 {
     public partial class MainWindow : Window
     {

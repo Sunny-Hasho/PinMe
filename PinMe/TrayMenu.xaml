@@ -1,4 +1,4 @@
-<Window x:Class="PinWin.TrayMenu"
+<Window x:Class="Pinnit.TrayMenu"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="TrayMenu" Height="Auto" Width="240"
@@ -93,7 +93,14 @@
 
             <Rectangle Height="1" Fill="#EEE" Margin="5,5"/>
 
-            <!-- Change Icon with Flyout Arrow -->
+
+            <!-- Run on Startup Toggle -->
+            <Button x:Name="BtnRunOnStartup" Style="{StaticResource MenuItemStyle}" Click="BtnRunOnStartup_Click">
+                <DockPanel LastChildFill="True">
+                    <TextBlock Text="Run on Startup" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                    <CheckBox x:Name="ChkRunOnStartup" Style="{StaticResource ToggleSwitchStyle}" HorizontalAlignment="Right" IsHitTestVisible="False"/>
+                </DockPanel>
+            </Button>
             <Button x:Name="BtnChangeIcon" Style="{StaticResource MenuItemStyle}" Click="BtnChangeIcon_Click" MouseEnter="BtnChangeIcon_MouseEnter">
                 <DockPanel LastChildFill="True">
                     <TextBlock Text="🖼" Margin="0,0,10,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
