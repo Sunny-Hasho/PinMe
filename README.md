@@ -72,7 +72,7 @@ Requirements: **.NET 8 SDK**
 git clone https://github.com/Sunny-Hasho/PinMe.git
 
 # Navigate to project
-cd PinMe/PinMe
+cd PinMe/Pinnie
 
 # Publish as a single file
 dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
